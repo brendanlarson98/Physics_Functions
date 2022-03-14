@@ -1,0 +1,962 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.optimize
+from scipy.optimize import newton
+from scipy import stats
+from IPython.display import display, Math
+import cmath
+import math
+import copy
+import random
+from random import randint
+from numpy.polynomial.hermite import hermval
+
+# Dynamic Systems
+
+def dynamics_solve(f, D = 1, t_0 = 0.0, s_0 = 1, h = 0.1, N = 100, method = "Euler"):
+    
+    """ Solves for dynamics of a given dynamical system
+    
+    - User must specify dimension D of phase space.
+    - Includes Euler, RK2, RK4 modeling, that user can choose from using the keyword "method"
+    
+    Args:
+        f: A python function f(t, s) that assigns a float to each time and state representing
+        the time derivative of the state at that time.
+        
+    Kwargs:
+        D: Phase space dimension (int) set to 1 as default
+        t_0: Initial time (float) set to 0.0 as default
+        s_0: Initial state (float for D=1, ndarray for D>1) set to 1.0 as default
+        h: Step size (float) set to 0.1 as default
+        N: Number of steps (int) set to 100 as default
+        method: Numerical method (string), can be "Euler", "RK2", "RK4"
+    
+    Returns:
+        T: Numpy array of times
+        S: Numpy array of states at the times given in T
+    """
+    
+    T = np.array([t_0 + n * h for n in range(N + 1)])
+    
+    if D == 1:
+        S = np.zeros(N + 1)
+    
+    if D > 1:
+        S = np.zeros((N + 1, D))
+        
+    S[0] = s_0
+    
+    if method == 'Euler':
+        for n in range(N):
+            S[n + 1] = S[n] + h * f(T[n], S[n])
+
+    if method == 'RK2':
+        for n in range(N):
+            k1 = h * f(T[n], S[n])
+            k2 = h * f(T[n] + (2./3.) * h, S[n] + (2./3.) * k1)
+            S[n + 1] = S[n] + 0.25 * k1 + 0.75 * k2
+    
+    if method == 'RK4':
+        for n in range(N):
+            k1 = h * f(T[n], S[n])
+            k2 = h * f(T[n] + 0.5 * h, S[n] + 0.5 * k1)
+            k3 = h * f(T[n] + 0.5 * h, S[n] + 0.5 * k2)
+            k4 = h * f(T[n] + h, S[n] + k3 )
+            S[n + 1] = S[n] + (1./6.) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+    return T, S
+
+
+
+def hamiltonian_solve(d_qH, d_pH, d = 1, t_0 = 0.0, q_0 = 0.0, p_0 = 1.0, h = 0.1, N = 100, method = "Euler"):
+    
+#     Q0 = K*(1-e)
+#     P0 = np.sqrt(mu*(1+e)/(1-e))
+
+    
+    """ Solves for dynamics of Hamiltonian system
+    
+    - User must specify dimension d of configuration space.
+    - Includes Euler, RK2, RK4, Symplectic Euler (SE) and Stormer Verlet (SV) 
+      that user can choose from using the keyword "method"
+    
+    Args:
+        d_qH: Partial derivative of the Hamiltonian with respect to coordinates (float for d=1, ndarray for d>1)
+        d_pH: Partial derivative of the Hamiltonian with respect to momenta (float for d=1, ndarray for d>1)
+        
+    Kwargs:
+        d: Spatial dimension (int) set to 1 as default
+        t_0: Initial time (float) set to 0.0 as default
+        q_0: Initial position (float for d=1, ndarray for d>1) set to 0.0 as default
+        p_0: Initial momentum (float for d=1, ndarray for d>1) set to 1.0 as default
+        h: Step size (float) set to 0.1 as default
+        N: Number of steps (int) set to 100 as default
+        method: Numerical method (string), can be "Euler", "RK2", "RK4", "SE", "SV"
+    
+    Returns:
+        T: Numpy array of times
+        Q: Numpy array of positions at the times given in T
+        P: Numpy array of momenta at the times given in T
+    """
+    T = np.array([t_0 + n * h for n in range(N + 1)])
+    
+    if d == 1:
+        P = np.zeros(N + 1)
+        Q = np.zeros(N + 1)
+        
+        Q[0] = q_0
+        P[0] = p_0
+    
+    if d > 1:
+        P = np.zeros((N + 1, d))
+        Q = np.zeros((N + 1, d))
+        
+        P[0][0] = p_0[0]
+        P[0][1] = p_0[1]
+        Q[0][0] = q_0[0]
+        Q[0][1] = q_0[1]
+    
+    if method == 'Euler':
+        for n in range(N):
+            Q[n + 1] = Q[n] + h * d_pH(Q[n], P[n])
+            P[n + 1] = P[n] - h * d_qH(Q[n], P[n])
+    
+    if method == 'RK2':
+        for n in range(N):
+            k1_Q = h * d_pH(Q[n], P[n])
+            k1_P = h * (- d_qH(Q[n], P[n]))
+            
+            
+            k2_Q = h * d_pH(Q[n] + (2./3.) * h, P[n] + (2./3.) * k1_Q)
+            k2_P = h * -d_qH(Q[n] + (2./3.) * h, P[n] + (2./3.) * k1_P)
+            
+            Q[n + 1] = Q[n] + 0.25 * k1_Q + 0.75 * k2_Q
+            P[n + 1] = P[n] + 0.25 * k1_P + 0.75 * k2_P
+            
+    if method == 'RK4':
+        for n in range(N): 
+            k1_Q = h * d_pH(Q[n], P[n])
+            k1_P = h * (- d_qH(Q[n], P[n]))
+            
+            k2_Q = h * d_pH(Q[n] + 0.5 * h, P[n] + 0.5 * k1_Q)
+            k2_P = h * -d_qH(Q[n] + 0.5 * h, P[n] + 0.5 * k1_P)
+            
+            k3_Q = h * d_pH(Q[n] + 0.5 * h, P[n] + 0.5 * k2_Q)
+            k3_P = h * -d_qH(Q[n] + 0.5 * h, P[n] + 0.5 * k2_P)
+            
+            k4_Q = h * d_pH(Q[n] + h, P[n] + k3_Q)
+            k4_P = h * -d_qH(Q[n] + h, P[n] + k3_P)
+            
+            Q[n + 1] = Q[n] + (1./6.) * (k1_Q + 2 * k2_Q + 2 * k3_Q + k4_Q)
+            P[n + 1] = P[n] + (1./6.) * (k1_P + 2 * k2_P + 2 * k3_P + k4_P)
+        
+    if method == 'SE':
+        for n in range(N):
+            Q[n + 1] = Q[n] + h * d_pH(Q[n], P[n])
+            P[n + 1] = P[n] - h * d_qH(Q[n+1], P[n])
+    
+    if method == "SV" and d > 1:
+        for n in range(N):
+            Pnhalf0 = P[n][0] - d_qH(Q[n][0], P[n][0])[0]
+            Pnhalf1 = P[n][1] - d_qH(Q[n][1], P[n][1])[1]
+            
+            Q[n + 1][0] = Q[n][0] + d_pH(Q[n][0], Pnhalf0)[0]
+            Q[n + 1][1] = Q[n][1] + d_pH(Q[n][1], Pnhalf1)[1]
+            
+            P[n + 1][0] = Pnhalf0 - d_qH(Q[n + 1][0], P[n][0])[0]
+            P[n + 1][1] = Pnhalf1 - d_qH(Q[n + 1][1], P[n][1])[1]
+    
+    if method == "SV" and d == 1:
+        for n in range(N):
+            Pnhalf = P[n] - h/2 * d_qH(Q[n], P[n])
+            Q[n + 1] = Q[n] + h * d_pH(Q[n], Pnhalf)
+            P[n + 1] = Pnhalf - h/2 * d_qH(Q[n+1], P[n])
+        
+        
+    return T, Q, P
+
+
+def deriv_qh(q, p):
+        
+    """ The derivative of the Hamiltonian of a system with respect to position.
+        In this circumstance, a harmonic oscillator.
+    
+    Args:
+        q: Position (float)
+        p: Momentum (float)
+        
+    Variables:
+        m: Mass (float)
+        w: Angular frequency (float)
+    
+    Returns:
+        ret: The derivative of the hamiltonian with respect to position (float)
+    """
+    
+    m = 0.5
+    w = 1
+    ret = m * w **2 * q
+    return ret
+
+def deriv_ph(q, p):
+    
+    """ The derivative of the Hamiltonian of a system with respect to momentum.
+        In this circumstance, a harmonic oscillator.
+    
+    Args:
+        q: Position (float)
+        p: Momentum (float)
+        
+    Variables:
+        m: Mass (float)
+    
+    Returns:
+        ret: The derivative of the hamiltonian with respect to momentum (float)
+    """
+    m = 0.5
+    ret = 1/m * p
+    return ret
+
+
+
+def pop_sol(p_0, t, R = 0.2, K = 1e6):
+            
+    """ Models a population growth over a period of time.
+    
+    
+    Args:
+        p_0: Initial Population (float)
+        t: Time (float)
+    
+    Kwargs:
+        R: Coefficient characterizing growth rate. (float)
+        K: Carrying capacity of the environment. (float)
+    
+    Returns:
+        p: Population at the end of an elapsed time. (float)
+    """
+    
+    p = (K * p_0) / ((K - p_0) * np.exp(-R * t) + 1)
+    return p
+
+
+def basic_pop_model(t, P, R = 0.2, K = 1e6):
+                
+    """ Models a population growth over a period of time.
+    
+    
+    Args:
+        P: Initial Population (float)
+        t: Time (float)
+    
+    Kwargs:
+        R: Coefficient characterizing growth rate. (float)
+        K: Carrying capacity of the environment. (float)
+    
+    Returns:
+        population : Population at the end of an elapsed time. (float)
+    """
+    
+    population = R * (1 - P / K) * P
+    return population
+
+
+def C_pop_model(T, P):
+                    
+    """ Models a population growth over a period of time.
+    
+    
+    Args:
+        P: Initial Population (float)
+        T: Time (float)
+    
+    Variables:
+        R: Coefficient characterizing growth rate. (float)
+        K: Carrying capacity of the environment. (float)
+        C: Constant (float)
+        Pc: Constant (float)
+    
+    Returns:
+        f : Population at the end of an elapsed time. (float)
+    """
+    
+    R = 0.2
+    K = 1000
+    C = 40
+    Pc = 100
+    f = R * (1 - P/K) * P - C * (P ** 2 / (Pc ** 2 + P **2))
+    return f
+
+
+
+# Matrices
+
+
+def print_Matrix(array):
+    matrix=''
+    for row in array:
+        try:
+            for number in row:
+                matrix+=f'{round(number, 4)}&'
+        except TypeError:
+            matrix +=f'{row}&'
+        matrix=matrix[:-1] + r'\\'
+        
+    display(Math(r'\begin{bmatrix}' + matrix+r'\end{bmatrix}'))
+
+
+def norm(H):
+    """
+    Args:
+        H (np.ndarray): symmetric matrix
+    
+    Returns:
+        res**0.5 (float): the norm of the matrix H
+    """
+    
+    line = H.flatten()
+    for i in line:
+        res += np.abs(i) ** 2
+    root = np.sqrt(res)
+    
+    return root
+
+def off(H):
+    
+    '''
+    Returns the magnitude of the off diagonal elements of matrix A.
+    
+    Args:
+        H (np.ndarray): An n by n matrix.
+        
+    Variables:
+        off (np.ndarray): the flattened matrix A.
+        yeeyee (np.ndarray): the returned set of off with the diagonal removed.    
+    
+    Returns:
+        output (int): The square rooted sum of the squares of all matrix A elements.
+        
+    '''
+    off = H.flatten()
+    yeeyee = np.delete(off, range(0, len(off), len(H) + 1), 0)
+    output = np.sqrt(np.sum(yeeyee * yeeyee))
+    
+    return output
+
+def jacobi_rotation(A, j, k):
+    '''
+    Args:
+        A (np.ndarray): n by n real symmetric matrix
+        j (int): row parameter.
+        k (int): column parameter.
+
+    Returns:
+        A (np.ndarray): n by n real symmetric matrix, where the A[j,k] and A[k,j] element is zero
+        J (np.ndarray): n by n orthogonal matrix, the jacobi_rotation matrix
+    '''
+        
+    if A[j,k] != 0:
+        tau = (A[k,k] - A[j,j]) / (2 * A[j,k])
+        
+        if tau >= 0:
+            t = 1 / (tau + np.sqrt(1 + tau ** 2))
+        else:
+            t = 1 / (tau - np.sqrt(1 + tau ** 2))
+            
+        c = 1 / np.sqrt(1 + t ** 2)
+        s = t * c
+    else:
+        c = 1
+        s = 0
+    
+    J = np.identity(np.shape(A)[0])
+    J[j,j] = c
+    J[j,k] = s
+    J[k,j] = -s
+    J[k,k] = c
+    A = np.transpose(J) @ A @ J
+    
+    return A, J
+
+
+def real_eigen(A, tol):
+    '''
+    Args:
+        A (np.ndarray): n by n real symmetric matrix
+        tol (float): the relative precision
+    Returns:
+        d (np.ndarray): n by 1 vector, d[i] is the i-th eigenvalue, repeated according 
+                        to multiplicity and ordered in non-decreasing order
+        R (np.ndarray): n by n orthogonal matrix, R[:,i] is the i-th eigenvector
+    '''
+
+    #I couldn't figure out how the psuedocode went wrong so I scrapped it.
+
+    delta = tol * norm(A)
+    shape = np.shape(A)[0]
+    R = np.identity(shape)
+    
+    while off(A) > delta:
+        copy_matrix = copy.deepcopy(A)
+        for i in range(shape):
+            copy_matrix[i,i] = 0
+        
+        j, k = np.where(abs(A) == np.max(abs(copy_matrix)))
+        A, J = jacobi_rotation(A, j[0], k[0])
+        R = R @ J
+
+    diag = A.diagonal()
+    index = np.argsort(diag)
+    d = diag[index]
+    R = R[:, index]
+    
+    return d, R
+
+
+def hermitian_eigensystem(H, tol):
+    '''
+    Args:
+        H (np.ndarray): square complex hermitian matrix
+        tol (float): relative precision
+    Returns:
+        d (np.ndarray): one dimensional array of the ith eigenvalue, repeated according to multiplicity
+        Z (np.ndarray): square unitary matrix, U[:,i] is the i-th eigenvector
+    '''
+        
+    # Same here    
+        
+    shape = np.shape(H)[0]
+    S = H.real
+    A = H.imag
+    
+    conc = np.concatenate((np.hstack((S, -A)), np.hstack((A, S))))
+    d, R = real_eigen(conc, tol)
+    matrix = list(zip(d, R.T))
+    matrix.sort(key = lambda x: x[0])
+    eigens = np.zeros(shape)
+    Z = np.zeros((shape, shape), dtype = 'complex')
+    
+    for i in range(shape):
+        x2 = 2 * i
+        eigens[i] = matrix[x2][0]
+        Z[:,i] = matrix[x2][1][:shape] + matrix[x2][1][shape:] * 1j 
+        
+    index = np.argsort(eigens)
+    d = eigens[index]
+    
+    return d, Z
+
+
+def x_square(N):
+    '''
+    Models the x squared operator in a shape N by N matrix
+    
+    Arg:
+        N (int): the shape of the matrix to model.
+        
+    Variables:
+        j (int): row parameter.
+        k (int): column parameter.
+        
+    Returns:
+        Z (np.ndarray): An N by N matrix of the x squared operator.
+    '''
+    
+    Z = np.zeros((N, N))
+    
+    for j in range(N):
+        for k in range(N):
+            if j == k:
+                Z[j, k] = j + 0.5
+            elif i == j + 2:
+                Z[j, k] = 0.5 * ((j - k) * j)**(1./2.)
+            elif i == j - 2:
+                Z[j, k] = 0.5 * ((j + 1) * (j + 2))**(1./2.)
+                
+    return Z
+
+def x_quad(N):
+    '''
+    Models the x**4 operator in a shape N by N matrix
+    
+    Arg:
+        N (int): the shape of the matrix to model.
+        
+    Variables:
+        j (int): row parameter.
+        k (int): column parameter.
+        
+    Returns:
+        Z (np.ndarray): An N by N matrix of the x**4 operator.
+    '''
+    
+    Z = np.zeros((N, N))
+    
+    for j in range(N):
+        for k in range(N):
+            if j == k:
+                Z[j, k] = (1 / 4) * (6 * j**2 + 6 * j + 3)
+            elif j == k + 2:
+                Z[j, k] = (j - 0.5) * ((j - 1) * j) ** (1 / 2)
+            elif j == k - 2:
+                Z[j, k] = (j + 1.5) * ((j + 1) * (j + 2)) ** (1./2.)
+            elif j == k + 4:
+                Z[j, k] = (1 / 4) * ((j - 1) * (j - 2) * (j - 3) * j) ** (1 / 2)
+            elif j == k - 4:
+                Z[j, k] = (1 / 4) * ((j + 1) * (j + 2) * (j + 3) * (j + 4)) ** (1 / 2)
+        
+    return Z
+
+def anharmonic_oscillator(lambduh, N):
+    '''
+    The modeling of an anharmonic oscillator.
+    
+    Arg:
+        lambduh (int): the lambda value of the energy of the system.
+        N (int): The size of matrix to consider.
+        
+    Variables:
+        I (np.ndarray): an N by N size identity matrix.
+        aplus (np.ndarray): an N by N size model of the raising operator.
+        
+    Returns:
+        H (np.ndarray): Anharmonic Oscillator matrix.
+    '''
+    I = np.identity(N)
+    aplus = np.zeros((N, N))
+    
+    for i in range(1, N):
+        aplus[i, i - 1] = i ** (1 / 2)
+    
+    H = lambduh * (1 + x_quad(N)) + np.dot(aplus, aplus.T) + (1 / 2) * I
+        
+    return H
+
+
+def eigenfunction(col, num, lambduh = 0):
+    '''
+    Args:
+        col (int): Set of eigenvectors
+        num (int): range of positions
+        
+    Kwargs:
+        lambduh (int): 
+
+    Returns:
+        reals (int):
+    '''
+    
+    m_size = 20
+    M = anharmonic_oscillator(lambduh, m_size)
+    U = hermitian_eigensystem(M, 1e-10)[1]
+    norm = U[:, col]
+    sums = 0
+    zeroes = np.zeros(m_size, dtype = 'complex')
+    
+    for j in range(m_size):
+        zeroes[j] = norm[j]
+        sums += ((2 ** j * math.factorial(j) * np.pi ** 0.5) ** (-0.5)) * np.exp(-0.5 * num ** 2) * hermval(num, zeroes)
+        
+    reals = sums.real
+    
+    return reals
+
+
+# Markov chain Monte Carlo simulation
+
+def weighted_coin(beta, n, steps, plotshow = False):
+    '''
+    Get the average earnings of a weighted coin using a MCMC simulation, where you are heads over a number of trials.
+    
+    Args:
+    beta (int): probability of getting a head as opposed to a tails
+    n (int): total number of iterations
+    steps (int): steps size for averaging
+    
+    KwArgs:
+    plotshow (bool): deciding if you want to plot or not.
+    
+    Returns:
+    earning_avg (int): average earnings from the weighted coin.
+    '''
+    coin = ['H', 'T']
+    prob = [beta, 1 - beta]
+    heads = 0
+    tails = 0
+    avg_earn = []
+    iters = 0
+    state = coin[random.randint(0,1)]
+    
+    for i in range(0, n, steps):
+        for i in range(steps):
+            if state == "H":
+                randumb = np.random.rand(1)
+
+                if randumb < 0.5:
+                    heads += 1
+                    state = "H"
+                else:
+                    pacc = min(1, prob[1]/prob[0])
+                    randummy = np.random.rand(1)
+                    
+                    if (1 - pacc) > randummy:
+                        heads += 1
+                        state = "H"
+                    else:
+                        state = "T"
+                        tails += 1
+
+            else:
+                randumb = np.random.rand(1)
+
+                if randumb > 0.5:
+                    heads += 1
+                    state = "H"
+                else:
+                    state = "T"
+                    tails += 1
+    
+        iters += steps
+        heads_percent = heads / iters
+        tails_percent = 1 - heads_percent
+        
+        earnings = 2 * heads_percent - 1
+        avg_earn.append(earnings)
+        
+        earning_avg = avg_earn[-1]
+        
+    if plotshow:
+        print("Average Earnings: ", avg_earn[-1])
+
+        plt.plot(range(len(avg_earn)), avg_earn)
+        plt.xlabel("Flips (in thousands)")
+        plt.ylabel("Probability of Heads")
+        plt.title("Probability of Getting Heads")
+        plt.grid()
+        plt.show()
+    
+    return earning_avg
+
+
+def average_earnings_per_flip(beta):
+    '''
+    Get the theoretical average earnings per flip.
+    
+    Arg:
+    beta (int): probability of getting a heads over a tails.
+    
+    Returns:
+    results (int): Earnings expected per flip.
+    '''
+    results = 2 * beta - 1
+    return results
+
+
+def gen_grid_two_plots():
+    '''
+    plotting theoretical earnings for a weighted coin using a MCMC simulation vs a theoretical weighted coin.
+    '''
+    fig = plt.figure(figsize = (10, 10))
+    fig.subplots_adjust(hspace = 0.3, wspace = 0.3)
+    ax1 = plt.subplot(2,2,1)
+    ax2 = plt.subplot(2,2,2)
+    
+    twenty = np.linspace(0.001, 1, 20)
+    theo = []
+    avg_earn1 = []
+    avg_earn2 = []
+    
+    
+    for num in twenty:
+        theo.append(average_earnings_per_flip(num))
+        avg_earn1.append(weighted_coin(num, 1000, 50))
+        avg_earn2.append(weighted_coin(num, 1000000, 20000))
+    
+    labels = ["Weighted Coin", "Theoretical"]
+    ax1.plot(twenty, avg_earn1, label = labels[0])
+    ax1.plot(twenty, theo, label = labels[1])
+    ax1.set_xlabel("Beta")
+    ax1.set_ylabel("Average Earnings ($)")
+    ax1.set_title(f"Average Earnings vs. Beta")
+    ax1.legend()
+    ax1.grid()
+    
+    ax2.plot(twenty, avg_earn2, label = labels[0])
+    ax2.plot(twenty, theo, label = labels[1])
+    ax2.set_xlabel("Beta")
+    ax2.set_ylabel("Average Earnings ($)")
+    ax2.set_title(f"Average Earnings vs. Beta")
+    ax2.legend()
+    ax2.grid()
+    
+    plt.show()
+
+
+def weighted_die(n, plotshow = False):
+    '''
+    Getting the theoretical earnings from a weighted die using an MCMC simulation. This is intending you weighted 1 and 2 as
+    three times more likely than 3, 4, 5, and 6.
+    
+    Args:
+    n (int): number of simulations
+    
+    KwArgs:
+    plotshow (bool): decides whether you want to show the graph or not.
+    
+    Returns:
+    earnings (int): average earnings from the weighted die
+    '''
+    die = ['low', 'high']
+    prob = [.6, .4]
+    wins = 0
+    losses = 0
+    avg_earn = []
+    state = die[random.randint(0,1)]
+    
+    for i in range(0, n):
+        if state == "low":
+            randumb = np.random.rand(1)
+
+            if randumb < 0.5:
+                wins += 1
+                state = "low"
+            else:
+                pacc = min(1, prob[1]/prob[0])
+                randummy = np.random.rand(1)
+
+                if (1 - pacc) > randummy:
+                    wins += 1
+                    state = "low"
+                else:
+                    state = "high"
+                    losses += 1
+
+        else:
+            randumb = np.random.rand(1)
+
+            if randumb > 0.5:
+                wins += 1
+                state = "low"
+            else:
+                state = "high"
+                losses += 1
+    
+    win_percentage = wins / n
+    earnings = 2 * win_percentage - 1
+        
+    if plotshow:
+        print("Average Earnings: ", avg_earn[-1])
+
+        plt.plot(range(len(avg_earn)), avg_earn)
+        plt.xlabel("Rolls (in thousands)")
+        plt.ylabel("Probability of Winning")
+        plt.title("Probability of Winning a Weighted Die")
+        plt.grid()
+        plt.show()
+    
+    return earnings
+
+
+def two_dim_ising(L, temp, num_steps):
+    '''
+    Two dimensional structure of spins. A MCMC simulation is run to test average energy and magnetization.
+    
+    Arguments:
+    L (int): Lattice of side length (number of length)
+    temp (int): given temperature
+    num_steps (int): number of updates to make in the MCMC update.
+    
+    Returns:
+    t (int list): list of the number of each steps at each interval for U and M added.
+    U (int list): average internal energy of the system at each step interval
+    M (int list): average magnetization of the system at each step interval
+    '''
+    
+    S = 0
+    E = 0
+    E_avg = []
+    S_avg = []
+    steps = [] 
+    
+    spins_list = np.zeros((L,L))
+    for i in range(L):
+        for j in range(L):
+            spins_list[i][j] = np.random.choice([-1, 1])
+            S += spins_list[i][j]
+            
+    for i in range(L):
+        for j in range(L): # -= because of the negative sum
+            E -= spins_list[i][j] * (spins_list[(i + 1) % L][j] + spins_list[(i - 1) % L][j]  + spins_list[i][(j + 1) % L] + spins_list[i][(j - 1) % L])
+            
+    E_avg.append(E)
+    S_avg.append(S)
+    steps.append(0)
+        
+    for i in range(num_steps):
+        for j in range(150):
+            row = np.random.randint(L)
+            col = np.random.randint(L)
+            spot = spins_list[row][col]
+            
+            if spot == 1:
+                dS = -2
+            else:
+                dS = 2
+            
+            dE = 2 * spot * (spins_list[(row + 1) % L][col] + spins_list[(row - 1) % L][col]  + spins_list[row][(col + 1) % L] + spins_list[row][(col - 1) % L])
+            
+            if dE < 0:
+                spins_list[row][col] += dS 
+                E += dE
+                S += dS
+            else:
+                if np.random.rand(1) < np.exp(-dE / temp):
+                    spins_list[row][col] += dS
+                    E += dE
+                    S += dS
+        
+        iplus1 = E_avg[i] + 1/(i+1) * (E - E_avg[i])
+        E_avg.append(iplus1) 
+        Siplus1 = S_avg[i] + 1/(i+1) * (S - S_avg[i])
+        S_avg.append(Siplus1) 
+        steps.append((i + 1) * 100)
+        
+
+    t = [(L ** -2) * i for i in steps]
+    U = [(L ** -2) * i for i in E_avg]
+    M = [(L ** -2) * i for i in S_avg]
+    
+    
+    
+    return t, U, M
+
+
+def M_theoretical(T):
+    '''
+    Theoretical magnetization of a system based on a critical temperature of the system.
+    
+    Args:
+    T (int): temperature of system
+    
+    Returns:
+    Ms (int list): list of theoretical magnetizations
+    '''
+    
+    Tc = 2 / np.log(1 + np.sqrt(2))
+    Mt = []
+    for i in T:
+        if i < Tc:
+            answer = (1 - np.sinh(2 / i)**-4) ** (1/8)
+        else:
+            answer = 0
+        Mt.append(answer)
+        
+    return Mt
+
+
+
+def two_dim_ising_temp(spins_list, E, S, L, temp, num_steps):
+    '''
+    Two dimensional structure of spins. A MCMC simulation is run to test average energy and magnetization at different temperatures
+    
+    Args:
+    spins_list (int numpy ndarray): array of spins values (1 or -1) replicating a lattice structure
+    E (int): initial energy
+    S (int): initial net spin
+    L (int): size of lattice side
+    temp (int): temperature of system
+    num_steps (int): number of steps in MCMC update
+    
+    Returns:
+    spins_list (int numpy ndarray): array of spins values (1 or -1) replicating a lattice structure, but updated with a change
+    E (int): final energy after change
+    S (int): final net spin after change
+    M (int): magnetization
+    '''    
+    
+    S_avg = [S]
+            
+    for i in range(num_steps):
+        for j in range(150):
+            row = np.random.randint(L)
+            col = np.random.randint(L)
+            spot = spins_list[row][col]
+
+            if spot == 1:
+                dS = -2
+            else:
+                dS = 2
+
+            dE = 2 * spot * (spins_list[(row + 1) % L][col] + spins_list[(row - 1) % L][col]  + spins_list[row][(col + 1) % L] + spins_list[row][(col - 1) % L])
+
+            if dE < 0:
+                spins_list[row][col] += dS 
+                E += dE
+                S += dS
+            else:
+                if np.random.rand(1) < np.exp(-dE / temp):
+                    spins_list[row][col] += dS
+                    E += dE
+                    S += dS
+                    
+        iplus1 = S_avg[i] + 1/(i+1) * (S - S_avg[i])
+        S_avg.append(iplus1) 
+    
+    avg = sum(S_avg) / len(S_avg)
+    
+    M = avg * L ** -2
+        
+    return spins_list, E, S, M
+
+
+def two_dim_ising_grid(L, temp, num_steps):
+    '''
+    Two dimensional structure of spins. A MCMC simulation is run to test how changes in temperature will result in spin
+    conglomeration.
+    
+    Arguments:
+    L (int): Lattice of side length (number of length)
+    temp (int): given temperature
+    num_steps (int): number of updates to make in the MCMC update.
+    
+    Returns:
+    spins_list (int numpy ndarray): array of spins values (1 or -1) replicating a lattice structure
+    '''
+    
+    S = 0
+    E = 0
+    
+    spins_list = np.zeros((L,L))
+    for i in range(L):
+        for j in range(L):
+            spins_list[i][j] = np.random.choice([-1, 1])
+            S += spins_list[i][j]
+            
+    for i in range(L):
+        for j in range(L): # -= because of the negative sum
+            E -= spins_list[i][j] * (spins_list[(i + 1) % L][j] + spins_list[(i - 1) % L][j]  + spins_list[i][(j + 1) % L] + spins_list[i][(j - 1) % L])
+        
+    for i in range(num_steps):
+        row = np.random.randint(L)
+        col = np.random.randint(L)
+        spot = spins_list[row][col]
+
+        if spot == 1:
+            dS = -2
+        else:
+            dS = 2
+
+        dE = 2 * spot * (spins_list[(row + 1) % L][col] + spins_list[(row - 1) % L][col]  + spins_list[row][(col + 1) % L] + spins_list[row][(col - 1) % L])
+
+        if dE < 0:
+            spins_list[row][col] += dS 
+            E += dE
+            S += dS
+        else:
+            if np.random.rand(1) < np.exp(-dE / temp):
+                spins_list[row][col] += dS
+                E += dE
+                S += dS
+    
+    return spins_list
