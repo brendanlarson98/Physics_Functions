@@ -1,3 +1,5 @@
+# Please note that lines including $ should be formatted in LaTeX
+
 import numpy as np
 import random
 from random import randint
